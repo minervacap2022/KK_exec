@@ -7,8 +7,8 @@ from typing import Type
 
 import structlog
 
-from src.nodes.base import BaseNode
 from src.models.node import NodeCategory, NodeDefinition
+from src.nodes.base import BaseNode
 
 logger = structlog.get_logger()
 
@@ -52,9 +52,7 @@ class NodeRegistry:
         definition = instance.get_definition()
 
         if definition.name in self._nodes:
-            raise NodeRegistryError(
-                f"Node '{definition.name}' already registered"
-            )
+            raise NodeRegistryError(f"Node '{definition.name}' already registered")
 
         self._nodes[definition.name] = node_class
         self._instances[definition.name] = instance
@@ -128,9 +126,7 @@ class NodeRegistry:
             List of matching node definitions
         """
         return [
-            inst.get_definition()
-            for inst in self._instances.values()
-            if inst.category == category
+            inst.get_definition() for inst in self._instances.values() if inst.category == category
         ]
 
     def list_by_credential(self, credential_type: str) -> list[NodeDefinition]:
@@ -168,15 +164,16 @@ class NodeRegistry:
         Returns:
             Number of nodes loaded
         """
-        from src.nodes.tools.calculator import CalculatorNode
-        from src.nodes.tools.text_processor import TextProcessorNode
-        from src.nodes.tools.json_transformer import JsonTransformerNode
-        from src.nodes.apis.openai import OpenAINode
         from src.nodes.apis.anthropic import AnthropicNode
+        from src.nodes.apis.openai import OpenAINode
         from src.nodes.apis.weather import WeatherNode
-        from src.nodes.mcp.slack import SlackMCPNode
-        from src.nodes.mcp.github import GitHubMCPNode
         from src.nodes.mcp.filesystem import FilesystemMCPNode
+        from src.nodes.mcp.github import GitHubMCPNode
+        from src.nodes.mcp.notion import NotionCreatePageNode, NotionSearchNode
+        from src.nodes.mcp.slack import SlackMCPNode
+        from src.nodes.tools.calculator import CalculatorNode
+        from src.nodes.tools.json_transformer import JsonTransformerNode
+        from src.nodes.tools.text_processor import TextProcessorNode
 
         builtin_nodes = [
             # Tools
@@ -191,6 +188,8 @@ class NodeRegistry:
             SlackMCPNode,
             GitHubMCPNode,
             FilesystemMCPNode,
+            NotionCreatePageNode,
+            NotionSearchNode,
         ]
 
         count = 0

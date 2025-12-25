@@ -217,11 +217,14 @@ class WorkflowExecutionEngine:
                 messages=[HumanMessage(content=json.dumps(input_data))],
             )
 
-            # Execute with streaming
+            # Execute with streaming and collect final state
+            final_state = None
             if stream:
+                # Use astream with values mode to get final state
+                stream_mode = ["updates", "values"]
                 async for chunk in compiled.astream(
                     {"messages": initial_state.messages},
-                    stream_mode="updates",
+                    stream_mode=stream_mode,
                 ):
                     step_count += 1
 
@@ -231,19 +234,39 @@ class WorkflowExecutionEngine:
                             "MAX_STEPS_EXCEEDED",
                         )
 
-                    yield ExecutionEvent(
-                        type="step",
-                        trace_id=trace_id,
-                        step_number=step_count,
-                        data=self._serialize_chunk(chunk),
-                    )
+                    # chunk is (mode, data) tuple when using multiple stream modes
+                    if isinstance(chunk, tuple):
+                        mode, data = chunk
+                        if mode == "values":
+                            # This is the full state, save it
+                            final_state = data
+                        elif mode == "updates":
+                            # This is just the update, emit step event
+                            yield ExecutionEvent(
+                                type="step",
+                                trace_id=trace_id,
+                                step_number=step_count,
+                                data=self._serialize_chunk(data),
+                            )
+                    else:
+                        # Single stream mode
+                        yield ExecutionEvent(
+                            type="step",
+                            trace_id=trace_id,
+                            step_number=step_count,
+                            data=self._serialize_chunk(chunk),
+                        )
+
+                # If we didn't capture final state from streaming, get it now
+                if final_state is None:
+                    final_state = await compiled.ainvoke({"messages": initial_state.messages})
             else:
-                result = await compiled.ainvoke({"messages": initial_state.messages})
+                # Execute without streaming
+                final_state = await compiled.ainvoke({"messages": initial_state.messages})
                 step_count = 1
 
-            # Get final result
-            final_result = await compiled.ainvoke({"messages": initial_state.messages})
-            output_data = self._extract_output(final_result)
+            # Extract output from final state
+            output_data = self._extract_output(final_state)
 
             logger.info(
                 "execution_completed",
@@ -359,6 +382,7 @@ class WorkflowExecutionEngine:
 
         from src.nodes.base import NodeContext
         from src.nodes.mcp.notion import NotionCreatePageInput, NotionCreatePageNode
+        from src.nodes.registry import get_node_registry
 
         tools: list[BaseTool] = []
 
@@ -389,49 +413,113 @@ class WorkflowExecutionEngine:
             cred_map_keys=list(cred_map.keys()),
         )
 
+        logger.info(
+            "building_tools_from_nodes",
+            node_count=len(nodes),
+            node_types=[n.node_type for n in nodes],
+        )
+
+        # Get node registry for dynamic node creation
+        registry = get_node_registry()
+
         # Create tools from nodes
         for node_inst in nodes:
-            # For now, only handle Notion nodes explicitly
-            # TODO: Expand to use node registry for automatic tool creation
-            if node_inst.node_type == "notion_create_page":
-                # Create the node instance
-                node = NotionCreatePageNode()
+            logger.info(
+                "processing_node_for_tool",
+                node_type=node_inst.node_type,
+                node_id=node_inst.id,
+            )
 
-                # Create a factory function that captures credentials correctly
-                def make_create_page_func(credentials_map: dict[str, Any]):
-                    async def create_notion_page(
-                        title: str,
-                        content: str = "",
-                        parent_page_id: str | None = None,
-                    ) -> str:
-                        """Create a new page in Notion."""
-                        context = NodeContext(
-                            user_id="",  # Will be filled by execution context
-                            execution_id="",
-                            credentials=credentials_map,
-                            variables={},
-                        )
-
-                        input_data = NotionCreatePageInput(
-                            title=title,
-                            content=content or "",
-                            parent_page_id=parent_page_id,
-                        )
-
-                        result = await node.execute(input_data, context)
-                        return f"Created Notion page: {result.title} (ID: {result.page_id}, URL: {result.url})"
-
-                    return create_notion_page
-
-                create_page_func = make_create_page_func(cred_map)
-
-                tool = StructuredTool.from_function(
-                    func=create_page_func,
-                    name="create_notion_page",
-                    description="Create a new page in Notion workspace",
-                    coroutine=create_page_func,
+            # Get node from registry
+            node = registry.get(node_inst.node_type)
+            if node is None:
+                logger.warning(
+                    "node_type_not_found_in_registry",
+                    node_type=node_inst.node_type,
+                    node_id=node_inst.id,
                 )
-                tools.append(tool)
+                continue
+
+            # Log what we got from registry
+            logger.info(
+                "node_retrieved_from_registry",
+                node_type=node_inst.node_type,
+                node_instance_type=type(node).__name__,
+                node_definition_name=node.get_definition().name,
+            )
+
+            # Get node definition
+            definition = node.get_definition()
+
+            # Create a wrapper function that executes the node
+            def make_node_wrapper(
+                node_obj: BaseNode,
+                node_def: NodeDefinition,
+                creds: dict[str, Any],
+                node_config: dict[str, Any],
+            ):
+                async def node_wrapper(**kwargs) -> str:
+                    """Execute the node with given arguments."""
+                    # Log what node is being used
+                    import inspect
+                    sig = inspect.signature(node_obj.execute)
+                    input_param = list(sig.parameters.values())[0]
+                    logger.info(
+                        "node_wrapper_executing",
+                        node_obj_type=type(node_obj).__name__,
+                        execute_input_annotation=str(input_param.annotation),
+                        kwargs_keys=list(kwargs.keys()),
+                    )
+
+                    # Merge config from node instance with runtime arguments
+                    input_data = {**node_config, **kwargs}
+
+                    context = NodeContext(
+                        user_id="",
+                        execution_id="",
+                        credentials=creds,
+                        variables={},
+                    )
+
+                    # Validate input - node's validate_input should return the expected dataclass type
+                    validated = node_obj.validate_input(input_data)
+
+                    logger.info(
+                        "node_wrapper_after_validation",
+                        node_type=node_inst.node_type,
+                        validated_type=type(validated).__name__,
+                        is_dict=isinstance(validated, dict),
+                    )
+
+                    result = await node_obj.execute(validated, context)
+
+                    # Return simple string result
+                    if hasattr(result, "__dict__"):
+                        return str(result.__dict__)
+                    return str(result)
+
+                # Set name and docstring from definition
+                node_wrapper.__name__ = node_def.name
+                node_wrapper.__doc__ = node_def.description
+                return node_wrapper
+
+            wrapper_func = make_node_wrapper(node, definition, cred_map, node_inst.config or {})
+
+            # Create LangChain tool
+            tool = StructuredTool.from_function(
+                func=wrapper_func,
+                name=definition.name,
+                description=definition.description,
+                coroutine=wrapper_func,
+            )
+            tools.append(tool)
+
+            logger.info(
+                "tool_created_from_node",
+                node_type=node_inst.node_type,
+                tool_name=definition.name,
+                tool_count=len(tools),
+            )
 
         logger.debug(
             "tools_built_from_nodes",
@@ -478,17 +566,33 @@ class WorkflowExecutionEngine:
         Returns:
             Cleaned output dictionary
         """
+        from langchain_core.messages import ToolMessage
+
         messages = result.get("messages", [])
         if not messages:
             return {"result": None}
 
+        # Look for tool messages first - they contain the actual tool results
+        for msg in reversed(messages):
+            if isinstance(msg, ToolMessage):
+                # Tool message contains the raw result from the tool
+                return {
+                    "result": msg.content,
+                    "type": "tool_result",
+                }
+
+        # Fall back to last AI message
         last_message = messages[-1]
         if isinstance(last_message, AIMessage):
+            # Check if there were tool calls
+            has_tool_calls = last_message.tool_calls and len(last_message.tool_calls) > 0
             return {
                 "result": last_message.content,
                 "tool_calls": [
                     {"name": tc["name"], "args": tc["args"]}
                     for tc in (last_message.tool_calls or [])
                 ],
+                "type": "ai_response",
+                "has_tool_calls": has_tool_calls,
             }
         return {"result": str(last_message)}

@@ -120,6 +120,7 @@ class NotionCreatePageNode(BaseNode[NotionCreatePageInput, NotionCreatePageOutpu
             List of Notion block objects
         """
         import structlog
+
         logger = structlog.get_logger()
 
         if not content:
@@ -131,102 +132,91 @@ class NotionCreatePageNode(BaseNode[NotionCreatePageInput, NotionCreatePageOutpu
         for line in lines:
             if not line:
                 # Empty line creates an empty paragraph block
-                blocks.append({
-                    "object": "block",
-                    "type": "paragraph",
-                    "paragraph": {
-                        "rich_text": []
-                    }
-                })
+                blocks.append(
+                    {"object": "block", "type": "paragraph", "paragraph": {"rich_text": []}}
+                )
             elif line.startswith("# "):
                 # Heading 1
-                blocks.append({
-                    "object": "block",
-                    "type": "heading_1",
-                    "heading_1": {
-                        "rich_text": [
-                            {
-                                "type": "text",
-                                "text": {"content": line[2:].strip()}
-                            }
-                        ]
+                blocks.append(
+                    {
+                        "object": "block",
+                        "type": "heading_1",
+                        "heading_1": {
+                            "rich_text": [{"type": "text", "text": {"content": line[2:].strip()}}]
+                        },
                     }
-                })
+                )
             elif line.startswith("## "):
                 # Heading 2
-                blocks.append({
-                    "object": "block",
-                    "type": "heading_2",
-                    "heading_2": {
-                        "rich_text": [
-                            {
-                                "type": "text",
-                                "text": {"content": line[3:].strip()}
-                            }
-                        ]
+                blocks.append(
+                    {
+                        "object": "block",
+                        "type": "heading_2",
+                        "heading_2": {
+                            "rich_text": [{"type": "text", "text": {"content": line[3:].strip()}}]
+                        },
                     }
-                })
+                )
             elif line.startswith("### "):
                 # Heading 3
-                blocks.append({
-                    "object": "block",
-                    "type": "heading_3",
-                    "heading_3": {
-                        "rich_text": [
-                            {
-                                "type": "text",
-                                "text": {"content": line[4:].strip()}
-                            }
-                        ]
+                blocks.append(
+                    {
+                        "object": "block",
+                        "type": "heading_3",
+                        "heading_3": {
+                            "rich_text": [{"type": "text", "text": {"content": line[4:].strip()}}]
+                        },
                     }
-                })
+                )
             elif line.startswith("- ") or line.startswith("* "):
                 # Bulleted list item
-                blocks.append({
-                    "object": "block",
-                    "type": "bulleted_list_item",
-                    "bulleted_list_item": {
-                        "rich_text": [
-                            {
-                                "type": "text",
-                                "text": {"content": line[2:].strip()}
-                            }
-                        ]
+                blocks.append(
+                    {
+                        "object": "block",
+                        "type": "bulleted_list_item",
+                        "bulleted_list_item": {
+                            "rich_text": [{"type": "text", "text": {"content": line[2:].strip()}}]
+                        },
                     }
-                })
-            elif line.startswith("1. ") or line.startswith("2. ") or line.startswith("3. ") or \
-                 line.startswith("4. ") or line.startswith("5. ") or line.startswith("6. ") or \
-                 line.startswith("7. ") or line.startswith("8. ") or line.startswith("9. "):
+                )
+            elif (
+                line.startswith("1. ")
+                or line.startswith("2. ")
+                or line.startswith("3. ")
+                or line.startswith("4. ")
+                or line.startswith("5. ")
+                or line.startswith("6. ")
+                or line.startswith("7. ")
+                or line.startswith("8. ")
+                or line.startswith("9. ")
+            ):
                 # Numbered list item
-                blocks.append({
-                    "object": "block",
-                    "type": "numbered_list_item",
-                    "numbered_list_item": {
-                        "rich_text": [
-                            {
-                                "type": "text",
-                                "text": {"content": line.split(". ", 1)[1].strip()}
-                            }
-                        ]
+                blocks.append(
+                    {
+                        "object": "block",
+                        "type": "numbered_list_item",
+                        "numbered_list_item": {
+                            "rich_text": [
+                                {
+                                    "type": "text",
+                                    "text": {"content": line.split(". ", 1)[1].strip()},
+                                }
+                            ]
+                        },
                     }
-                })
+                )
             elif line.startswith("```"):
                 # Code block - skip the delimiters and capture content
                 continue
             else:
                 # Regular paragraph
-                blocks.append({
-                    "object": "block",
-                    "type": "paragraph",
-                    "paragraph": {
-                        "rich_text": [
-                            {
-                                "type": "text",
-                                "text": {"content": line}
-                            }
-                        ]
+                blocks.append(
+                    {
+                        "object": "block",
+                        "type": "paragraph",
+                        "paragraph": {"rich_text": [{"type": "text", "text": {"content": line}}]},
                     }
-                })
+                )
 
         logger.debug(
             "notion_content_converted_to_blocks",
@@ -235,6 +225,18 @@ class NotionCreatePageNode(BaseNode[NotionCreatePageInput, NotionCreatePageOutpu
         )
 
         return blocks
+
+    def validate_input(self, input_data: dict[str, Any]) -> NotionCreatePageInput:
+        """Validate input and convert dict to NotionCreatePageInput."""
+        title = input_data.get("title")
+        if not title:
+            raise NodeValidationError("title is required", field="title")
+
+        return NotionCreatePageInput(
+            title=title,
+            content=input_data.get("content"),
+            parent_page_id=input_data.get("parent_page_id"),
+        )
 
     async def execute(
         self,
@@ -255,6 +257,7 @@ class NotionCreatePageNode(BaseNode[NotionCreatePageInput, NotionCreatePageOutpu
         """
         # Validate credentials
         import structlog
+
         logger = structlog.get_logger()
         logger.info(
             "notion_node_checking_credentials",
@@ -312,11 +315,7 @@ class NotionCreatePageNode(BaseNode[NotionCreatePageInput, NotionCreatePageOutpu
                     )
 
                 # Prepare page properties - match exact schema expected by API
-                page_properties = {
-                    "title": [
-                        {"text": {"content": input_data.title}}
-                    ]
-                }
+                page_properties = {"title": [{"text": {"content": input_data.title}}]}
 
                 # Build parent object
                 parent = {"page_id": input_data.parent_page_id}
@@ -339,23 +338,23 @@ class NotionCreatePageNode(BaseNode[NotionCreatePageInput, NotionCreatePageOutpu
 
                 logger.info("notion_calling_tool", tool_name=page_tool)
 
-                # Build request with children if content is provided
+                # Build request - create page first without children (to avoid 100 block limit)
                 request_data = {
                     "parent": parent,
                     "properties": page_properties,
                 }
 
-                # Add content as children blocks if provided
-                if input_data.content:
-                    children = self._convert_content_to_blocks(input_data.content)
-                    if children:
-                        request_data["children"] = children
-                        logger.info(
-                            "notion_adding_content_blocks",
-                            block_count=len(children),
-                        )
+                logger.info(
+                    "notion_create_page_request",
+                    request_keys=list(request_data.keys()),
+                    has_children="children" in request_data,
+                    request_data_summary={
+                        "parent": request_data["parent"],
+                        "properties_keys": list(request_data["properties"].keys()) if "properties" in request_data else [],
+                    },
+                )
 
-                # Call Notion MCP tool
+                # Call Notion MCP tool to create page
                 result = await gateway.call_tool(connection, page_tool, request_data)
 
                 # Parse response - result is dict with "content" list
@@ -364,10 +363,73 @@ class NotionCreatePageNode(BaseNode[NotionCreatePageInput, NotionCreatePageOutpu
                 if content:
                     page_data = json.loads(content[0]["text"])
 
+                logger.info(
+                    "notion_page_created",
+                    page_data=page_data,
+                    page_data_keys=list(page_data.keys()) if page_data else [],
+                )
+
+                page_id = page_data.get("id", "")
+
+                # Build Notion URL - format: https://notion.so/{page_id_without_hyphens}
+                # Notion page IDs have format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+                # URL uses format: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx (no hyphens)
+                notion_url = f"https://notion.so/{page_id.replace('-', '')}" if page_id else "https://notion.so/"
+
+                # Add content in batches after page creation (Notion limit: 100 blocks per request)
+                logger.info(
+                    "notion_checking_content_to_add",
+                    has_content=input_data.content is not None,
+                    has_page_id=bool(page_id),
+                    page_id=page_id,
+                )
+
+                if input_data.content and page_id:
+                    children = self._convert_content_to_blocks(input_data.content)
+                    if children:
+                        logger.info(
+                            "notion_adding_content_blocks",
+                            block_count=len(children),
+                            batch_count=(len(children) + 99) // 100,
+                        )
+
+                        # Notion API limit: 100 children per request
+                        BATCH_SIZE = 100
+                        patch_tool = "API-patch-block-children"
+
+                        for i in range(0, len(children), BATCH_SIZE):
+                            batch = children[i:i + BATCH_SIZE]
+                            logger.info(
+                                "notion_adding_content_batch",
+                                batch_num=i // BATCH_SIZE + 1,
+                                batch_size=len(batch),
+                                total_batches=(len(children) + BATCH_SIZE - 1) // BATCH_SIZE,
+                            )
+
+                            patch_result = await gateway.call_tool(
+                                connection,
+                                patch_tool,
+                                {
+                                    "block_id": page_id,
+                                    "children": batch,
+                                },
+                            )
+                            logger.debug(
+                                "notion_content_batch_result",
+                                batch_num=i // BATCH_SIZE + 1,
+                                result=patch_result,
+                            )
+
+                logger.info(
+                    "notion_page_result",
+                    page_id=page_id,
+                    url=notion_url,
+                )
+
                 return NotionCreatePageOutput(
                     success=True,
-                    page_id=page_data.get("id", ""),
-                    url=page_data.get("url", f"https://notion.so/{page_data.get('id', '')}"),
+                    page_id=page_id,
+                    url=notion_url,
                     title=input_data.title,
                 )
 
@@ -440,6 +502,17 @@ class NotionSearchNode(BaseNode[NotionSearchInput, NotionSearchOutput]):
             tags=["notion", "search", "mcp"],
         )
 
+    def validate_input(self, input_data: dict[str, Any]) -> NotionSearchInput:
+        """Validate input and convert dict to NotionSearchInput."""
+        query = input_data.get("query")
+        if not query:
+            raise NodeValidationError("query is required", field="query")
+
+        return NotionSearchInput(
+            query=query,
+            filter_type=input_data.get("filter_type"),
+        )
+
     async def execute(
         self,
         input_data: NotionSearchInput,
@@ -447,6 +520,7 @@ class NotionSearchNode(BaseNode[NotionSearchInput, NotionSearchOutput]):
     ) -> NotionSearchOutput:
         """Execute node."""
         import structlog
+
         logger = structlog.get_logger()
 
         if "notion_oauth" not in context.credentials:
@@ -509,6 +583,7 @@ class NotionSearchNode(BaseNode[NotionSearchInput, NotionSearchOutput]):
 
                 # Parse response - result is dict with "content" list
                 import json
+
                 search_data = {}
                 content = result.get("content", [])
                 if content:
