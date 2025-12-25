@@ -1,6 +1,7 @@
 """OpenAI API node.
 
 Calls OpenAI GPT models for text generation.
+Supports custom OpenAI-compatible base URLs.
 """
 
 from dataclasses import dataclass
@@ -8,6 +9,7 @@ from typing import Any
 
 import httpx
 
+from src.config import settings
 from src.models.node import (
     NodeCategory,
     NodeDefinition,
@@ -27,6 +29,7 @@ class OpenAIInput:
     model: str = "gpt-4o"
     max_tokens: int = 1024
     temperature: float = 0.7
+    base_url: str | None = None
 
 
 @dataclass
@@ -42,6 +45,10 @@ class OpenAINode(BaseNode[OpenAIInput, OpenAIOutput]):
     """OpenAI API node for text generation.
 
     Requires 'openai_api_key' credential.
+
+    Supports custom base URLs for OpenAI-compatible APIs.
+    If base_url is not provided in node config, uses OPENAI_BASE_URL from settings,
+    or defaults to https://api.openai.com/v1.
 
     Example:
         result = await node.run(
@@ -91,6 +98,14 @@ class OpenAINode(BaseNode[OpenAIInput, OpenAIOutput]):
                     required=False,
                     default=0.7,
                 ),
+                NodeInput(
+                    name="base_url",
+                    display_name="Base URL",
+                    type=NodeInputType.STRING,
+                    description="Custom OpenAI-compatible base URL (overrides global setting)",
+                    required=False,
+                    default=None,
+                ),
             ],
             outputs=[
                 NodeOutput(
@@ -128,22 +143,20 @@ class OpenAINode(BaseNode[OpenAIInput, OpenAIOutput]):
         model = input_data.get("model", "gpt-4o")
         max_tokens = input_data.get("max_tokens", 1024)
         temperature = input_data.get("temperature", 0.7)
+        base_url = input_data.get("base_url")
 
         if not 0 <= temperature <= 2:
-            raise NodeValidationError(
-                "Temperature must be between 0 and 2", field="temperature"
-            )
+            raise NodeValidationError("Temperature must be between 0 and 2", field="temperature")
 
         if max_tokens < 1 or max_tokens > 128000:
-            raise NodeValidationError(
-                "Max tokens must be between 1 and 128000", field="max_tokens"
-            )
+            raise NodeValidationError("Max tokens must be between 1 and 128000", field="max_tokens")
 
         return OpenAIInput(
             prompt=prompt,
             model=model,
             max_tokens=max_tokens,
             temperature=temperature,
+            base_url=base_url,
         )
 
     async def execute(
@@ -161,10 +174,20 @@ class OpenAINode(BaseNode[OpenAIInput, OpenAIOutput]):
                 error_code="MISSING_CREDENTIAL",
             )
 
+        # Determine base URL: node config > settings > default
+        base_url = input_data.base_url or settings.openai_base_url or "https://api.openai.com/v1"
+
+        # Ensure base_url doesn't end with /chat/completions
+        base_url = base_url.rstrip("/")
+        if not base_url.endswith("/v1"):
+            base_url = f"{base_url}/v1"
+
+        api_endpoint = f"{base_url}/chat/completions"
+
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.post(
-                    "https://api.openai.com/v1/chat/completions",
+                    api_endpoint,
                     headers={
                         "Authorization": f"Bearer {api_key}",
                         "Content-Type": "application/json",

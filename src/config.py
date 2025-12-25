@@ -49,13 +49,17 @@ class Settings(BaseSettings):
         ...,
         description="OpenAI API key",
     )
+    openai_base_url: str | None = Field(
+        default=None,
+        description="Custom OpenAI-compatible base URL (e.g., https://api.openai.com/v1)",
+    )
     default_model: str = Field(
         default="gpt-4o",
         description="Default LLM model for workflow generation",
     )
     llm_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     llm_max_tokens: int = Field(default=4096, ge=1, le=128000)
-    llm_timeout: int = Field(default=60, ge=1, le=600)
+    llm_timeout: int = Field(default=180, ge=1, le=600)
 
     # MCP Configuration
     mcp_timeout: int = Field(
@@ -77,9 +81,7 @@ class Settings(BaseSettings):
     host: str = Field(default="0.0.0.0")
     port: int = Field(default=8000, ge=1, le=65535)
     debug: bool = Field(default=False)
-    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
-        default="INFO"
-    )
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(default="INFO")
 
     # JWT Authentication
     jwt_secret_key: SecretStr = Field(

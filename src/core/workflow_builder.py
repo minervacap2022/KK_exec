@@ -136,12 +136,18 @@ class WorkflowBuilder:
         self.model = model or settings.default_model
         self.temperature = temperature
 
-        self._llm = ChatOpenAI(
-            model=self.model,
-            temperature=self.temperature,
-            api_key=settings.openai_api_key.get_secret_value(),
-            timeout=settings.llm_timeout,
-        )
+        llm_kwargs = {
+            "model": self.model,
+            "temperature": self.temperature,
+            "api_key": settings.openai_api_key.get_secret_value(),
+            "timeout": settings.llm_timeout,
+        }
+
+        # Add base_url if configured
+        if settings.openai_base_url:
+            llm_kwargs["base_url"] = settings.openai_base_url
+
+        self._llm = ChatOpenAI(**llm_kwargs)
         self._parser = JsonOutputParser(pydantic_object=GeneratedWorkflow)
 
     async def build(
@@ -194,9 +200,7 @@ class WorkflowBuilder:
 
             # Additional validation
             warnings = list(result.get("warnings", []))
-            validation_warnings = self._validate_workflow(
-                workflow_graph, available_credentials
-            )
+            validation_warnings = self._validate_workflow(workflow_graph, available_credentials)
             warnings.extend(validation_warnings)
 
             logger.info(
@@ -230,20 +234,14 @@ class WorkflowBuilder:
                 lines.append(f"\n### {category.value.upper()} Nodes\n")
                 for node in category_nodes:
                     cred_info = (
-                        f" (requires: {node.credential_type})"
-                        if node.credential_type
-                        else ""
+                        f" (requires: {node.credential_type})" if node.credential_type else ""
                     )
                     lines.append(f"- **{node.name}**: {node.description}{cred_info}")
                     if node.inputs:
-                        inputs_str = ", ".join(
-                            f"{i.name}:{i.type.value}" for i in node.inputs
-                        )
+                        inputs_str = ", ".join(f"{i.name}:{i.type.value}" for i in node.inputs)
                         lines.append(f"  - Inputs: {inputs_str}")
                     if node.outputs:
-                        outputs_str = ", ".join(
-                            f"{o.name}:{o.type.value}" for o in node.outputs
-                        )
+                        outputs_str = ", ".join(f"{o.name}:{o.type.value}" for o in node.outputs)
                         lines.append(f"  - Outputs: {outputs_str}")
 
         return "\n".join(lines) if lines else "No nodes available."
@@ -303,9 +301,7 @@ class WorkflowBuilder:
 
         # Check credential requirements
         for node in graph.nodes:
-            node_def = next(
-                (n for n in self.node_catalog if n.name == node.type), None
-            )
+            node_def = next((n for n in self.node_catalog if n.name == node.type), None)
             if node_def and node_def.credential_type:
                 if node_def.credential_type not in available_credentials:
                     warnings.append(

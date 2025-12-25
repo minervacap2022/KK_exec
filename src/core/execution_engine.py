@@ -134,12 +134,18 @@ class WorkflowExecutionEngine:
         self.max_steps = max_steps or settings.execution_max_steps
         self.timeout = timeout or settings.execution_timeout
 
-        self._llm = ChatOpenAI(
-            model=self.model,
-            temperature=self.temperature,
-            api_key=settings.openai_api_key.get_secret_value(),
-            timeout=settings.llm_timeout,
-        )
+        llm_kwargs = {
+            "model": self.model,
+            "temperature": self.temperature,
+            "api_key": settings.openai_api_key.get_secret_value(),
+            "timeout": settings.llm_timeout,
+        }
+
+        # Add base_url if configured
+        if settings.openai_base_url:
+            llm_kwargs["base_url"] = settings.openai_base_url
+
+        self._llm = ChatOpenAI(**llm_kwargs)
 
     async def execute(
         self,
@@ -295,6 +301,7 @@ class WorkflowExecutionEngine:
             Compiled StateGraph
         """
         from typing import Annotated, TypedDict
+
         from langgraph.graph.message import add_messages
 
         class AgentState(TypedDict):
@@ -349,8 +356,9 @@ class WorkflowExecutionEngine:
             List of configured tools
         """
         from langchain_core.tools import StructuredTool
-        from src.nodes.mcp.notion import NotionCreatePageNode, NotionCreatePageInput
+
         from src.nodes.base import NodeContext
+        from src.nodes.mcp.notion import NotionCreatePageInput, NotionCreatePageNode
 
         tools: list[BaseTool] = []
 

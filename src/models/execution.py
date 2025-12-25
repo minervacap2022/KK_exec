@@ -4,11 +4,11 @@ Defines the Execution table for tracking workflow executions.
 Includes status, input/output data, timing, and error information.
 """
 
+import json
 from datetime import datetime, timezone
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
-import json
 
 from sqlmodel import Column, Field, Relationship, SQLModel, Text
 
@@ -140,7 +140,18 @@ class Execution(SQLModel, table=True):
         """Calculate execution duration in milliseconds."""
         if self.completed_at is None:
             return None
-        delta = self.completed_at - self.started_at
+
+        # Handle timezone-naive datetimes from SQLite
+        started = self.started_at
+        completed = self.completed_at
+
+        # If one is naive and the other is aware, make both naive for comparison
+        if started.tzinfo is not None and completed.tzinfo is None:
+            started = started.replace(tzinfo=None)
+        elif started.tzinfo is None and completed.tzinfo is not None:
+            completed = completed.replace(tzinfo=None)
+
+        delta = completed - started
         return int(delta.total_seconds() * 1000)
 
     def mark_running(self) -> None:

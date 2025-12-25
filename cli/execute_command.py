@@ -32,7 +32,7 @@ async def execute_natural_command(
     Returns:
         Execution result
     """
-    async with httpx.AsyncClient(timeout=120.0) as client:
+    async with httpx.AsyncClient(timeout=300.0) as client:
         headers = {"Authorization": f"Bearer {auth_token}"}
 
         # Step 1: Get user's available credentials (what MCPs they can use)
@@ -146,10 +146,10 @@ async def main():
 
     args = parser.parse_args()
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Command: {args.command}")
     print(f"User: {args.user_id}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     try:
         result = await execute_natural_command(
@@ -159,10 +159,10 @@ async def main():
             api_url=args.api_url,
         )
 
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print("EXECUTION RESULT")
-        print(f"{'='*60}")
-        print(json.dumps(result, indent=2))
+        print(f"{'=' * 60}")
+        print(json.dumps(result, indent=2, ensure_ascii=False))
         print()
 
         if result["status"] == "completed":
