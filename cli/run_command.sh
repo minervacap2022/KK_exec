@@ -82,11 +82,13 @@ echo -e "${BLUE}→ Analyzing command and selecting MCPs...${NC}"
 echo "  Command: $COMMAND"
 echo
 
-# Execute (get script directory and Python with dependencies)
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PYTHON="/opt/homebrew/opt/python@3.12/bin/python3.12"
+# Execute (get script directory and use uv run)
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd)"
+PROJECT_DIR="$( cd "$SCRIPT_DIR/.." && pwd )"
 
-"$PYTHON" "$SCRIPT_DIR/execute_command.py" \
+# Change to project directory for uv to work correctly
+cd "$PROJECT_DIR"
+uv run python "$SCRIPT_DIR/execute_command.py" \
     "$COMMAND" \
     --user-id "$USER_ID" \
     --token "$TOKEN" \

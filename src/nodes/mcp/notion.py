@@ -110,6 +110,132 @@ class NotionCreatePageNode(BaseNode[NotionCreatePageInput, NotionCreatePageOutpu
             tags=["notion", "page", "create", "mcp"],
         )
 
+    def _convert_content_to_blocks(self, content: str) -> list[dict[str, Any]]:
+        """Convert plain text content to Notion block format.
+
+        Args:
+            content: Plain text or markdown content
+
+        Returns:
+            List of Notion block objects
+        """
+        import structlog
+        logger = structlog.get_logger()
+
+        if not content:
+            return []
+
+        blocks = []
+        lines = content.split("\n")
+
+        for line in lines:
+            if not line:
+                # Empty line creates an empty paragraph block
+                blocks.append({
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": []
+                    }
+                })
+            elif line.startswith("# "):
+                # Heading 1
+                blocks.append({
+                    "object": "block",
+                    "type": "heading_1",
+                    "heading_1": {
+                        "rich_text": [
+                            {
+                                "type": "text",
+                                "text": {"content": line[2:].strip()}
+                            }
+                        ]
+                    }
+                })
+            elif line.startswith("## "):
+                # Heading 2
+                blocks.append({
+                    "object": "block",
+                    "type": "heading_2",
+                    "heading_2": {
+                        "rich_text": [
+                            {
+                                "type": "text",
+                                "text": {"content": line[3:].strip()}
+                            }
+                        ]
+                    }
+                })
+            elif line.startswith("### "):
+                # Heading 3
+                blocks.append({
+                    "object": "block",
+                    "type": "heading_3",
+                    "heading_3": {
+                        "rich_text": [
+                            {
+                                "type": "text",
+                                "text": {"content": line[4:].strip()}
+                            }
+                        ]
+                    }
+                })
+            elif line.startswith("- ") or line.startswith("* "):
+                # Bulleted list item
+                blocks.append({
+                    "object": "block",
+                    "type": "bulleted_list_item",
+                    "bulleted_list_item": {
+                        "rich_text": [
+                            {
+                                "type": "text",
+                                "text": {"content": line[2:].strip()}
+                            }
+                        ]
+                    }
+                })
+            elif line.startswith("1. ") or line.startswith("2. ") or line.startswith("3. ") or \
+                 line.startswith("4. ") or line.startswith("5. ") or line.startswith("6. ") or \
+                 line.startswith("7. ") or line.startswith("8. ") or line.startswith("9. "):
+                # Numbered list item
+                blocks.append({
+                    "object": "block",
+                    "type": "numbered_list_item",
+                    "numbered_list_item": {
+                        "rich_text": [
+                            {
+                                "type": "text",
+                                "text": {"content": line.split(". ", 1)[1].strip()}
+                            }
+                        ]
+                    }
+                })
+            elif line.startswith("```"):
+                # Code block - skip the delimiters and capture content
+                continue
+            else:
+                # Regular paragraph
+                blocks.append({
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": [
+                            {
+                                "type": "text",
+                                "text": {"content": line}
+                            }
+                        ]
+                    }
+                })
+
+        logger.debug(
+            "notion_content_converted_to_blocks",
+            block_count=len(blocks),
+            line_count=len(lines),
+        )
+
+        return blocks
+
     async def execute(
         self,
         input_data: NotionCreatePageInput,
@@ -213,11 +339,21 @@ class NotionCreatePageNode(BaseNode[NotionCreatePageInput, NotionCreatePageOutpu
 
                 logger.info("notion_calling_tool", tool_name=page_tool)
 
-                # Build request - children not supported in current schema
+                # Build request with children if content is provided
                 request_data = {
                     "parent": parent,
                     "properties": page_properties,
                 }
+
+                # Add content as children blocks if provided
+                if input_data.content:
+                    children = self._convert_content_to_blocks(input_data.content)
+                    if children:
+                        request_data["children"] = children
+                        logger.info(
+                            "notion_adding_content_blocks",
+                            block_count=len(children),
+                        )
 
                 # Call Notion MCP tool
                 result = await gateway.call_tool(connection, page_tool, request_data)
